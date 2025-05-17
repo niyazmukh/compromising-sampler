@@ -9,7 +9,7 @@ from scipy.optimize import minimize
 # --- Model Parameters ---
 INITIAL_ALPHA = 0.23 # Initial guess for optimizer
 INITIAL_K = 9      # Initial guess for optimizer
-N_IDS = 400000
+N_IDS = 200000
 SEED = 42
 
 # --- Initialize RNGs ---
@@ -215,6 +215,41 @@ def objective_function(params, df_a_initial, n_ids):
     # print(f"Trying Alpha={alpha:.4f}, K={k_int}, MSD={mean_msd:.6f}")
     return mean_msd
 
+def grid_search(df_a_initial, n_ids):
+    print("--- Starting Grid Search ---")
+    # Define the ranges and step sizes
+    alpha_range = np.arange(0.13, 0.28, 0.01)  # Step size of 0.01
+    k_range = np.arange(3, 15, 1)              # Step size of 1
+    
+    best_msd = float('inf')
+    best_params = None
+    results = []
+    
+    total_combinations = len(alpha_range) * len(k_range)
+    current = 0
+    
+    for alpha in alpha_range:
+        for k in k_range:
+            current += 1
+            _, mean_msd = run_full_simulation(alpha, k, df_a_initial, n_ids)
+            results.append((alpha, k, mean_msd))
+            
+            if mean_msd < best_msd:
+                best_msd = mean_msd
+                best_params = (alpha, k)
+            
+            print(f"Progress: {current}/{total_combinations} - Alpha={alpha:.2f}, K={k}, MSD={mean_msd:.6f}")
+    
+    # Sort results by MSD
+    results.sort(key=lambda x: x[2])
+    
+    print("\n--- Grid Search Results ---")
+    print("Top 5 combinations:")
+    for alpha, k, msd in results[:5]:
+        print(f"Alpha={alpha:.2f}, K={k}, MSD={msd:.6f}")
+    
+    return best_params, best_msd
+
 # --- Main Execution Block ---
 if __name__ == "__main__":
     # --- Argument Parsing ---
@@ -231,15 +266,15 @@ if __name__ == "__main__":
 
     # --- Data Creation (Only Once) ---
     data_string = """
-     1 8 .5 1 7 .5 2 6 .5 3 5 .5 4 -.195
-     2 6 .55 22 9 .55 18 12 .55 14 10 .45 15 -.074
-     3 8 .55 1 7 .55 2 6 .55 3 5 .55 4 -.321
-     4 6 .5 22 9 .5 18 12 .5 14 10 .5 15 .009
+     1 8 .5 1 7 .5 2 6 .5 3 5 .5 4 -.270
+     2 6 .55 22 9 .55 18 12 .55 14 10 .45 15 -.142
+     3 8 .55 1 7 .55 2 6 .55 3 5 .55 4 -.249
+     4 6 .5 22 9 .5 18 12 .5 14 10 .5 15 .057
      5 100 .3 0 75 .4 0 38 .8 0 33 .9 0 .154
-     6 150 .2 0 100 .3 0 43 .7 0 0 .1 33 -.018
+     6 150 .2 0 100 .3 0 43 .7 0 33 .9 0 -.018
      7 150 .2 0 100 .3 0 60 .5 0 50 .6 0 .111
      8 33 .9 0 38 .8 0 43 .7 0 50 .6 0 .291
-     9 50 .6 0 60 .5 0 75 .4 0 0 .7 100 .326
+     9 50 .6 0 60 .5 0 75 .4 0 100 .3 0 .326
     """
     cols = ['superset', 'va1', 'pa', 'va2', 'vb1', 'pb', 'vb2', 'vc1', 'pc', 'vc2', 'vd1', 'pd', 'vd2', 'oce']
     df_a_initial = pd.read_csv(io.StringIO(data_string.strip()), sep=r'\s+', header=None, names=cols)
@@ -259,40 +294,13 @@ if __name__ == "__main__":
 
     # --- Parameter Determination (Based on Mode) ---
     if args.mode == 'search':
-        print("--- Starting Parameter Optimization (Nelder-Mead) ---")
-        initial_params = [INITIAL_ALPHA, INITIAL_K] # Start near expected optimum
-        # Note: Nelder-Mead doesn't strictly enforce bounds like L-BFGS-B
-        # param_bounds = [(0.0, 1.0), (1, 50)] # Bounds kept for reference
-
-        # Run optimization
-        optimization_result = minimize(
-            objective_function,
-            initial_params,
-            args=(df_a_initial, N_IDS),
-            method='Nelder-Mead',
-            options={
-                'disp': True,
-                'xatol': 1e-3,
-                'fatol': 1e-4
-                }
-        )
-
-        if optimization_result.success:
-            optimal_alpha, optimal_k_float = optimization_result.x
-            # Ensure parameters are within reasonable bounds post-optimization if needed
-            optimal_alpha = max(0.0, min(1.0, optimal_alpha))
-            optimal_k = int(round(optimal_k_float))
-            if optimal_k < 1: optimal_k = 1
-            min_msd = optimization_result.fun
-            print("\n--- Optimization Successful ---")
-            print(f"Optimal ALPHA: {optimal_alpha:.4f}")
-            print(f"Optimal K: {optimal_k} (float value: {optimal_k_float:.4f})")
-            print(f"Minimum Mean MSD: {min_msd:.6f}")
-        else:
-            print("\n--- Optimization Failed ---")
-            print(optimization_result.message)
-            print(f"Falling back to initial parameters: ALPHA={INITIAL_ALPHA}, K={INITIAL_K}")
-            optimal_alpha, optimal_k = INITIAL_ALPHA, INITIAL_K
+        print("--- Starting Grid Search ---")
+        best_params, min_msd = grid_search(df_a_initial, N_IDS)
+        optimal_alpha, optimal_k = best_params
+        print("\n--- Grid Search Complete ---")
+        print(f"Best ALPHA: {optimal_alpha:.4f}")
+        print(f"Best K: {optimal_k}")
+        print(f"Minimum Mean MSD: {min_msd:.6f}")
 
     elif args.mode == 'execute':
         print("--- Running in Execute Mode (Using Initial Parameters) ---")
